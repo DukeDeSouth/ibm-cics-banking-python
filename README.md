@@ -1,4 +1,4 @@
-# cics-banking-python
+# ibm-cics-banking-python
 
 IBM's [cics-banking-sample-application-cbsa](https://github.com/cicsdev/cics-banking-sample-application-cbsa) re-architectured from COBOL/CICS/DB2 to Python/FastAPI/SQLite.
 
