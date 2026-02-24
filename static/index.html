@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CICS Banking — Python</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+header{background:#1e293b;padding:1rem 2rem;display:flex;align-items:center;gap:1rem;border-bottom:1px solid #334155}
+header h1{font-size:1.25rem;color:#38bdf8}
+header .badge{background:#0ea5e9;color:#fff;padding:.2rem .6rem;border-radius:4px;font-size:.75rem}
+nav{background:#1e293b;padding:.5rem 2rem;display:flex;gap:.5rem;flex-wrap:wrap;border-bottom:1px solid #334155}
+nav button{background:#334155;color:#cbd5e1;border:none;padding:.5rem 1rem;border-radius:6px;cursor:pointer;font-size:.875rem;transition:all .15s}
+nav button:hover{background:#475569}
+nav button.active{background:#0ea5e9;color:#fff}
+main{max-width:900px;margin:2rem auto;padding:0 1rem}
+.section{display:none}
+.section.active{display:block}
+.card{background:#1e293b;border-radius:8px;padding:1.5rem;margin-bottom:1rem;border:1px solid #334155}
+.card h2{color:#38bdf8;margin-bottom:1rem;font-size:1.1rem}
+label{display:block;margin-bottom:.5rem;color:#94a3b8;font-size:.875rem}
+input,select{width:100%;padding:.5rem;background:#0f172a;border:1px solid #475569;border-radius:4px;color:#e2e8f0;margin-bottom:.75rem;font-size:.875rem}
+input:focus,select:focus{outline:none;border-color:#0ea5e9}
+button.btn{background:#0ea5e9;color:#fff;border:none;padding:.6rem 1.2rem;border-radius:6px;cursor:pointer;font-size:.875rem;transition:all .15s}
+button.btn:hover{background:#0284c7}
+button.btn.danger{background:#ef4444}
+button.btn.danger:hover{background:#dc2626}
+button.btn.success{background:#22c55e}
+button.btn.success:hover{background:#16a34a}
+.msg{padding:.75rem;border-radius:6px;margin-bottom:1rem;font-size:.875rem}
+.msg.ok{background:#064e3b;border:1px solid #059669;color:#6ee7b7}
+.msg.err{background:#450a0a;border:1px solid #dc2626;color:#fca5a5}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th{text-align:left;padding:.5rem;color:#94a3b8;border-bottom:1px solid #334155}
+td{padding:.5rem;border-bottom:1px solid #1e293b}
+.money{font-family:'Courier New',monospace;text-align:right}
+.row{display:flex;gap:1rem}
+.row>*{flex:1}
+#status{margin-top:.5rem}
+</style>
+</head>
+<body>
+<header>
+  <h1>CICS Banking</h1>
+  <span class="badge">Python / FastAPI</span>
+  <span class="badge" style="background:#475569">COBOL → Python re-architecture</span>
+</header>
+<nav id="nav"></nav>
+<main id="app"></main>
+
+<script>
+const API = '/api';
+const sections = [
+  {id:'home',label:'Home'},
+  {id:'cust-create',label:'Create Customer'},
+  {id:'cust-view',label:'View Customer'},
+  {id:'cust-list',label:'List Customers'},
+  {id:'acc-create',label:'Create Account'},
+  {id:'acc-view',label:'View Account'},
+  {id:'acc-list',label:'Customer Accounts'},
+  {id:'transfer',label:'Transfer'},
+  {id:'debitcredit',label:'Debit/Credit'},
+];
+
+function $(s,p){return(p||document).querySelector(s)}
+function $$(s,p){return[...(p||document).querySelectorAll(s)]}
+function ce(t,a,c){const e=document.createElement(t);if(a)Object.assign(e,a);if(c)e.innerHTML=c;return e}
+function fmt(cents){return(cents/100).toFixed(2)}
+function fmtRate(h){return(h/100).toFixed(2)+'%'}
+
+async function api(path,opts){
+  const r=await fetch(API+path,{headers:{'Content-Type':'application/json'},...opts});
+  return r.json();
+}
+
+function showMsg(el,ok,msg){
+  el.className='msg '+(ok?'ok':'err');
+  el.textContent=msg;
+}
+
+function buildNav(){
+  const nav=$('#nav');
+  sections.forEach(s=>{
+    const b=ce('button',{textContent:s.label});
+    b.onclick=()=>showSection(s.id);
+    nav.appendChild(b);
+  });
+}
+
+function showSection(id){
+  $$('.section').forEach(s=>s.classList.remove('active'));
+  const el=$(`#s-${id}`);if(el)el.classList.add('active');
+  $$('#nav button').forEach((b,i)=>{b.classList.toggle('active',sections[i].id===id)});
+}
+
+function buildApp(){
+  const m=$('#app');
+  m.innerHTML=`
+  <div id="s-home" class="section active">
+    <div class="card"><h2>CICS Bank Sample Application</h2>
+    <p>Sortcode: <strong>987654</strong></p>
+    <p style="margin-top:.5rem;color:#94a3b8">Translated from IBM COBOL/CICS/DB2 to Python/FastAPI/SQLite.</p>
+    <p style="margin-top:.5rem;color:#94a3b8">29 COBOL programs (27,300 lines) → ~2,000 lines Python.</p>
+    <button class="btn" style="margin-top:1rem" onclick="doSeed()">Generate Test Data</button>
+    <div id="seed-msg" style="margin-top:.5rem"></div>
+    </div>
+  </div>
+
+  <div id="s-cust-create" class="section">
+    <div class="card"><h2>Create Customer</h2>
+    <label>Full Name (start with title: Mr, Mrs, Dr, ...)</label><input id="cc-name" placeholder="Mr John Smith">
+    <label>Address</label><input id="cc-addr" placeholder="1 Oak Avenue, Norwich">
+    <label>Date of Birth (YYYY-MM-DD)</label><input id="cc-dob" placeholder="1990-01-15">
+    <button class="btn" onclick="doCreateCust()">Create</button>
+    <div id="cc-msg" style="margin-top:.5rem"></div>
+    </div>
+  </div>
+
+  <div id="s-cust-view" class="section">
+    <div class="card"><h2>View / Edit / Delete Customer</h2>
+    <div class="row"><div><label>Customer Number</label><input id="cv-num" type="number" placeholder="1"></div>
+    <div style="align-self:end"><button class="btn" onclick="doGetCust()">Find</button></div></div>
+    <div id="cv-result"></div>
+    </div>
+  </div>
+
+  <div id="s-cust-list" class="section">
+    <div class="card"><h2>All Customers</h2>
+    <button class="btn" onclick="doListCust()">Refresh</button>
+    <div id="cl-result" style="margin-top:1rem"></div>
+    </div>
+  </div>
+
+  <div id="s-acc-create" class="section">
+    <div class="card"><h2>Create Account</h2>
+    <label>Customer Number</label><input id="ac-cust" type="number" placeholder="1">
+    <label>Account Type</label>
+    <select id="ac-type"><option>CURRENT</option><option>SAVING</option><option>LOAN</option><option>MORTGAGE</option><option>ISA</option></select>
+    <button class="btn" onclick="doCreateAcc()">Create</button>
+    <div id="ac-msg" style="margin-top:.5rem"></div>
+    </div>
+  </div>
+
+  <div id="s-acc-view" class="section">
+    <div class="card"><h2>View / Delete Account</h2>
+    <div class="row"><div><label>Account Number</label><input id="av-num" type="number" placeholder="1"></div>
+    <div style="align-self:end"><button class="btn" onclick="doGetAcc()">Find</button></div></div>
+    <div id="av-result"></div>
+    </div>
+  </div>
+
+  <div id="s-acc-list" class="section">
+    <div class="card"><h2>Accounts by Customer</h2>
+    <div class="row"><div><label>Customer Number</label><input id="al-cust" type="number" placeholder="1"></div>
+    <div style="align-self:end"><button class="btn" onclick="doListAcc()">Find</button></div></div>
+    <div id="al-result" style="margin-top:1rem"></div>
+    </div>
+  </div>
+
+  <div id="s-transfer" class="section">
+    <div class="card"><h2>Transfer Funds</h2>
+    <div class="row"><div><label>From Account</label><input id="tf-from" type="number"></div>
+    <div><label>To Account</label><input id="tf-to" type="number"></div></div>
+    <label>Amount ($)</label><input id="tf-amt" type="number" step="0.01" placeholder="100.00">
+    <button class="btn" onclick="doTransfer()">Transfer</button>
+    <div id="tf-msg" style="margin-top:.5rem"></div>
+    </div>
+  </div>
+
+  <div id="s-debitcredit" class="section">
+    <div class="card"><h2>Debit / Credit</h2>
+    <label>Account Number</label><input id="dc-acc" type="number" placeholder="1">
+    <label>Amount ($)</label><input id="dc-amt" type="number" step="0.01" placeholder="50.00">
+    <div class="row" style="margin-top:.5rem">
+      <button class="btn success" onclick="doDebitCredit(false)">Credit (+)</button>
+      <button class="btn danger" onclick="doDebitCredit(true)">Debit (−)</button>
+    </div>
+    <div id="dc-msg" style="margin-top:.5rem"></div>
+    </div>
+  </div>`;
+}
+
+async function doSeed(){
+  const r=await api('/seed',{method:'POST'});
+  showMsg($('#seed-msg'),r.success,r.success?`Created ${r.data.customers} customers, ${r.data.accounts} accounts`:r.message);
+}
+
+async function doCreateCust(){
+  const r=await api('/customers',{method:'POST',body:JSON.stringify({
+    name:$('#cc-name').value,address:$('#cc-addr').value,date_of_birth:$('#cc-dob').value
+  })});
+  showMsg($('#cc-msg'),r.success,r.success?`Customer #${r.data.number} created (score: ${r.data.credit_score})`:r.message);
+}
+
+async function doGetCust(){
+  const n=$('#cv-num').value;
+  const r=await api(`/customers/${n}`);
+  const el=$('#cv-result');
+  if(!r.success){el.innerHTML=`<div class="msg err">${r.message}</div>`;return}
+  const d=r.data;
+  el.innerHTML=`<table><tr><th>Field</th><th>Value</th></tr>
+    <tr><td>Number</td><td>${d.number}</td></tr>
+    <tr><td>Name</td><td><input id="cv-name" value="${d.name}"></td></tr>
+    <tr><td>Address</td><td><input id="cv-address" value="${d.address}"></td></tr>
+    <tr><td>DOB</td><td>${d.date_of_birth||'—'}</td></tr>
+    <tr><td>Credit Score</td><td>${d.credit_score}</td></tr>
+    <tr><td>Review Date</td><td>${d.cs_review_date||'—'}</td></tr></table>
+    <div style="margin-top:1rem;display:flex;gap:.5rem">
+      <button class="btn" onclick="doUpdCust(${d.number})">Update</button>
+      <button class="btn danger" onclick="doDelCust(${d.number})">Delete</button>
+    </div><div id="cv-msg" style="margin-top:.5rem"></div>`;
+}
+
+async function doUpdCust(n){
+  const r=await api(`/customers/${n}`,{method:'PUT',body:JSON.stringify({
+    name:$('#cv-name').value,address:$('#cv-address').value
+  })});
+  showMsg($('#cv-msg'),r.success,r.success?'Updated':r.message);
+}
+
+async function doDelCust(n){
+  if(!confirm('Delete customer and all accounts?'))return;
+  const r=await api(`/customers/${n}`,{method:'DELETE'});
+  showMsg($('#cv-msg')||$('#cv-result'),r.success,r.success?'Deleted':r.message);
+}
+
+async function doListCust(){
+  const r=await api('/customers');
+  const el=$('#cl-result');
+  if(!r.success||!r.data.length){el.innerHTML='<p>No customers</p>';return}
+  el.innerHTML=`<table><tr><th>#</th><th>Name</th><th>Score</th><th>DOB</th></tr>`
+    +r.data.map(c=>`<tr><td>${c.number}</td><td>${c.name}</td><td>${c.credit_score}</td><td>${c.date_of_birth||'—'}</td></tr>`).join('')+'</table>';
+}
+
+async function doCreateAcc(){
+  const r=await api('/accounts',{method:'POST',body:JSON.stringify({
+    customer_number:+$('#ac-cust').value,account_type:$('#ac-type').value
+  })});
+  showMsg($('#ac-msg'),r.success,r.success?`Account #${r.data.number} created (${r.data.account_type})`:r.message);
+}
+
+async function doGetAcc(){
+  const n=$('#av-num').value;
+  const r=await api(`/accounts/${n}`);
+  const el=$('#av-result');
+  if(!r.success){el.innerHTML=`<div class="msg err">${r.message}</div>`;return}
+  const d=r.data;
+  el.innerHTML=`<table><tr><th>Field</th><th>Value</th></tr>
+    <tr><td>Number</td><td>${d.number}</td></tr>
+    <tr><td>Customer</td><td>${d.customer_number}</td></tr>
+    <tr><td>Type</td><td>${d.account_type}</td></tr>
+    <tr><td>Interest</td><td>${fmtRate(d.interest_rate)}</td></tr>
+    <tr><td>Overdraft</td><td class="money">$${fmt(d.overdraft_limit)}</td></tr>
+    <tr><td>Available</td><td class="money">$${fmt(d.available_balance)}</td></tr>
+    <tr><td>Actual</td><td class="money">$${fmt(d.actual_balance)}</td></tr>
+    <tr><td>Opened</td><td>${d.opened||'—'}</td></tr></table>
+    <div style="margin-top:1rem"><button class="btn danger" onclick="doDelAcc(${d.number})">Delete Account</button></div>
+    <div id="av-msg" style="margin-top:.5rem"></div>`;
+}
+
+async function doDelAcc(n){
+  if(!confirm('Delete account?'))return;
+  const r=await api(`/accounts/${n}`,{method:'DELETE'});
+  showMsg($('#av-msg')||$('#av-result'),r.success,r.success?'Deleted':r.message);
+}
+
+async function doListAcc(){
+  const c=$('#al-cust').value;
+  const r=await api(`/customers/${c}/accounts`);
+  const el=$('#al-result');
+  if(!r.success){el.innerHTML=`<div class="msg err">${r.message}</div>`;return}
+  if(!r.data.length){el.innerHTML='<p>No accounts</p>';return}
+  el.innerHTML=`<table><tr><th>#</th><th>Type</th><th>Interest</th><th>Available</th><th>Actual</th></tr>`
+    +r.data.map(a=>`<tr><td>${a.number}</td><td>${a.account_type}</td><td>${fmtRate(a.interest_rate)}</td><td class="money">$${fmt(a.available_balance)}</td><td class="money">$${fmt(a.actual_balance)}</td></tr>`).join('')+'</table>';
+}
+
+async function doTransfer(){
+  const amt=Math.round(parseFloat($('#tf-amt').value)*100);
+  const r=await api('/transfers',{method:'POST',body:JSON.stringify({
+    from_account:+$('#tf-from').value,to_account:+$('#tf-to').value,amount:amt
+  })});
+  showMsg($('#tf-msg'),r.success,r.success?`Done. From: $${fmt(r.data.from_balance)}, To: $${fmt(r.data.to_balance)}`:r.message);
+}
+
+async function doDebitCredit(isDebit){
+  const amt=Math.round(parseFloat($('#dc-amt').value)*100);
+  const r=await api(`/accounts/${$('#dc-acc').value}/debit-credit`,{method:'POST',body:JSON.stringify({
+    amount:amt,is_debit:isDebit
+  })});
+  showMsg($('#dc-msg'),r.success,r.success?`Balance: $${fmt(r.data.available_balance)}`:r.message);
+}
+
+buildNav();buildApp();
+</script>
+</body>
+</html>
